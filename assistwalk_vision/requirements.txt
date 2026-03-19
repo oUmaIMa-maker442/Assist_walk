@@ -1,0 +1,20 @@
+# requirements.txt
+# Installer avec : pip install -r requirements.txt
+
+# YOLO — détection d'objets
+ultralytics==8.3.0
+
+# CRAFT via EasyOCR — détection zones texte
+easyocr==1.7.2
+
+# Traitement d'images
+opencv-python==4.9.0.80
+Pillow==10.3.0
+numpy==1.26.4
+
+# Interface prototype web
+streamlit==1.35.0
+
+# Deep learning (requis par ultralytics et easyocr)
+torch==2.3.0
+torchvision==0.18.0
