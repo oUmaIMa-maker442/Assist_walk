@@ -45,7 +45,7 @@ def translate_object(name, lang='fr'):
 # ══════════════════════════════════════════════════════════
 # MODE NAVIGATION — obstacles en temps réel
 # ══════════════════════════════════════════════════════════
-def process_frame(data, use_ai=False, lang='fr'):
+def process_frame(data, use_ai=False, lang='fr', speak=True):
     """
     Pipeline navigation — YOLO + CRAFT crops
     data = {
@@ -102,7 +102,7 @@ def process_frame(data, use_ai=False, lang='fr'):
     else:
         final_message = _classic_message(objects_with_distances, texts, final_lang)
 
-    speak_if_new(final_message, lang=final_lang)
+    speak_if_new(final_message, lang=final_lang)   # pipeline parle toujours
     return final_message, final_lang
 
 
@@ -129,7 +129,7 @@ def process_lecture(image, speak=True):
     message    = ". ".join(textes)  # ✅ tout le texte, pas seulement 6 lignes
 
     if speak:
-        speak_if_new(message, lang=final_lang)
+        speak_if_new(message, lang=final_lang, is_lecture=True)
 
     return message, final_lang
 

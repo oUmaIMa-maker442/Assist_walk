@@ -13,13 +13,15 @@ _last_message = ""
 _last_time    = 0
 _last_valid_t = 0
 
-# ── File d'attente audio — thread dédié ────────────────────
-_audio_queue  = queue.Queue()
-_audio_thread = None
+_audio_queue    = queue.Queue()
+_audio_thread   = None
+
+# ✅ Flag externe — mis à True par stream_processor AVANT OCR
+#    speak_if_new navigation bloquée immédiatement
+lecture_mode = False
 
 
 def _worker():
-    """Thread dédié à la lecture audio — évite les blocages"""
     while True:
         item = _audio_queue.get()
         if item is None:
@@ -44,13 +46,10 @@ def _start_worker():
         _audio_thread = threading.Thread(target=_worker, daemon=True)
         _audio_thread.start()
 
-
-# Démarrer le worker au chargement du module
 _start_worker()
 
 
 def nettoyer_audio():
-    """Supprime les fichiers audio temporaires résiduels"""
     fichiers = glob.glob("temp_audio_*.mp3")
     for f in fichiers:
         try: os.remove(f)
@@ -59,8 +58,22 @@ def nettoyer_audio():
         print(f"[SPEECH] 🗑️ {len(fichiers)} fichiers audio supprimés")
 
 
+def vider_file():
+    """Vider la file audio — appelé avant lecture"""
+    try:
+        while not _audio_queue.empty():
+            _audio_queue.get_nowait()
+            _audio_queue.task_done()
+    except:
+        pass
+
+
 def speak_if_new(message: str, lang: str = 'fr'):
     global _last_message, _last_time, _last_valid_t
+
+    # ✅ Bloquer navigation si lecture en cours
+    if lecture_mode:
+        return
 
     now = time.time()
 
@@ -82,14 +95,12 @@ def speak_if_new(message: str, lang: str = 'fr'):
     _last_message = message
     _last_time    = now
 
-    # ✅ Vider la file si déjà en train de parler (navigation)
-    # Garder le message lecture complet — ne pas vider pour mode lecture
-    if _audio_queue.qsize() > 1:
-        try:
-            while not _audio_queue.empty():
-                _audio_queue.get_nowait()
-                _audio_queue.task_done()
-        except: pass
-
     _start_worker()
     _audio_queue.put((message, lang))
+
+
+def speak_lecture(message: str, lang: str = 'fr'):
+    """Parler en mode lecture — ignore le flag lecture_mode"""
+    _start_worker()
+    _audio_queue.put((message, lang))
+    _audio_queue.join()
