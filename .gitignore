@@ -1,5 +1,6 @@
-env_projet/
+venv/
 __pycache__/
-*.pyc
-.vscode/
-.env
+*.mp3
+*.jpg
+*.png
+*_ocr_result.txt
