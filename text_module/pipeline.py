@@ -1,65 +1,50 @@
+# ═══════════════════════════════════════════════════════════
 # text_module/pipeline.py
+# Phase 1: English-only pipeline — object names stay in
+#          English throughout; voice output is English.
+#          French / Arabic removed from navigation logic.
+# ═══════════════════════════════════════════════════════════
 
-from ocr_engine         import extract_text_easy, extract_text_lecture
-from text_cleaning      import clean_text
-from lang_detector      import detect_language
-from distance_estimator import distance_message, estimate_distance
+from ocr_engine           import extract_text_easy, extract_text_lecture
+from text_cleaning        import clean_text
+from lang_detector        import detect_language
+from distance_estimator   import distance_message, estimate_distance
 from ai_message_generator import generate_smart_message as generate_ai_message
-from speech             import speak_if_new
-from text_analysis      import interpret_text
+from speech               import speak_if_new, speak_lecture
+from text_analysis        import interpret_text
 
-DISTANCES_IMPORTANTES = ["très proche", "proche"]
+# Only objects that are "close enough" get announced
+IMPORTANT_DISTANCES = {'very_close', 'close'}
 
-TRADUCTIONS = {
-    'fr': {
-        "person": "personne", "car": "voiture", "truck": "camion",
-        "bus": "bus", "motorcycle": "moto", "bicycle": "vélo",
-        "traffic light": "feu de circulation", "stop sign": "panneau stop",
-        "chair": "chaise", "bench": "banc", "laptop": "ordinateur portable",
-        "backpack": "sac à dos", "dog": "chien", "cat": "chat",
-        "fire hydrant": "bouche d'incendie", "suitcase": "valise",
-        "couch": "canapé", "dining table": "table", "tv": "télévision",
-        "bed": "lit", "book": "livre", "keyboard": "clavier",
-    },
-    'en': {
-        "person": "person", "car": "car", "truck": "truck",
-        "bus": "bus", "motorcycle": "motorcycle", "bicycle": "bicycle",
-        "traffic light": "traffic light", "stop sign": "stop sign",
-        "chair": "chair", "bench": "bench", "laptop": "laptop",
-        "backpack": "backpack", "dog": "dog", "cat": "cat",
-    },
-    'ar': {
-        "person": "شخص", "car": "سيارة", "truck": "شاحنة",
-        "bus": "حافلة", "motorcycle": "دراجة نارية", "bicycle": "دراجة",
-        "traffic light": "إشارة مرور", "stop sign": "إشارة قف",
-        "chair": "كرسي", "bench": "مقعد", "laptop": "حاسوب محمول",
-        "backpack": "حقيبة ظهر", "dog": "كلب", "cat": "قطة",
-    }
+# "No obstacle" messages in supported languages
+_CLEAR_MSGS = {
+    'en': 'no obstacles detected',
+    'fr': 'aucun obstacle détecté',
+    'ar': 'لا يوجد عوائق',
 }
 
 
-def translate_object(name, lang='fr'):
-    return TRADUCTIONS.get(lang, TRADUCTIONS['fr']).get(name, name)
-
-
 # ══════════════════════════════════════════════════════════
-# MODE NAVIGATION — obstacles en temps réel
+# NAVIGATION MODE — real-time obstacle detection
 # ══════════════════════════════════════════════════════════
-def process_frame(data, use_ai=False, lang='fr', speak=True):
+def process_frame(data: dict, use_ai: bool = False,
+                  lang: str = 'en', speak: bool = True):
     """
-    Pipeline navigation — YOLO + CRAFT crops
+    Navigation pipeline — YOLO detections + CRAFT OCR crops.
+
     data = {
-        "objects":      [{"name": ..., "bbox": [...]}],
-        "text_regions": [image_numpy, ...],
+        "objects":      [{"name": str, "bbox": list}, ...],
+        "text_regions": [numpy_image, ...],
         "frame_shape":  (h, w, c)
     }
-    Retourne : (message_final, langue_finale)
+
+    Returns: (final_message: str, final_lang: str)
     """
     objects      = data.get("objects", [])
     text_regions = data.get("text_regions", [])
     frame_shape  = data.get("frame_shape", (480, 640, 3))
 
-    # ── OCR sur crops CRAFT ──────────────────────────────
+    # ── OCR on CRAFT crops ───────────────────────────────
     texts = []
     for region in text_regions:
         raw = extract_text_easy(region, lang=lang)
@@ -68,74 +53,85 @@ def process_frame(data, use_ai=False, lang='fr', speak=True):
             if cleaned:
                 texts.append(cleaned)
 
-    # ── Langue ───────────────────────────────────────────
+    # ── Language detection (from OCR text only) ──────────
+    # Object names stay in English regardless.
     all_text   = " ".join(texts)
     final_lang = detect_language(all_text) if all_text.strip() else lang
 
-    # ── Distances objets ─────────────────────────────────
+    # ── Build distance messages for close objects ─────────
     objects_with_distances = []
     seen = set()
 
     for obj in objects:
-        name_en   = obj.get("name", "objet")
-        bbox      = obj.get("bbox", [0, 0, 50, 50])
-        name_trad = translate_object(name_en, final_lang)
+        name_en = obj.get("name", "object")
+        bbox    = obj.get("bbox", [0, 0, 50, 50])
 
-        dist_text, _ = estimate_distance(bbox, frame_shape[1], frame_shape[0])
-        if dist_text not in DISTANCES_IMPORTANTES:
+        dist_key, _ = estimate_distance(bbox, frame_shape[1], frame_shape[0])
+        if dist_key not in IMPORTANT_DISTANCES:
             continue
         if name_en in seen:
             continue
         seen.add(name_en)
 
-        dist_msg = distance_message(name_trad, bbox, frame_shape, final_lang)
+        # Always generate the spoken message in English
+        msg = distance_message(name_en, bbox, frame_shape, lang='en')
         objects_with_distances.append({
-            "name":     name_trad,
+            "name":     name_en,
             "bbox":     bbox,
-            "distance": dist_msg
+            "distance": msg,
         })
 
-    # ── Message ───────────────────────────────────────────
+    # ── Build final message ───────────────────────────────
     if use_ai and (objects_with_distances or texts):
-        ai_msg = generate_ai_message(objects_with_distances, texts, final_lang)
-        final_message = ai_msg if ai_msg else _classic_message(objects_with_distances, texts, final_lang)
+        ai_msg = generate_ai_message(objects_with_distances, texts, 'en')
+        final_message = ai_msg if ai_msg else _classic_message(
+            objects_with_distances, texts, final_lang)
     else:
-        final_message = _classic_message(objects_with_distances, texts, final_lang)
+        final_message = _classic_message(
+            objects_with_distances, texts, final_lang)
 
-    speak_if_new(final_message, lang=final_lang)   # pipeline parle toujours
+    if speak:
+        speak_if_new(final_message, lang='en')
+
     return final_message, final_lang
 
 
 # ══════════════════════════════════════════════════════════
-# MODE LECTURE — lire un document complet
+# READING MODE — read a full document
 # ══════════════════════════════════════════════════════════
-def process_lecture(image, speak=True):
+def process_lecture(image, speak: bool = True):
     """
-    Pipeline lecture — EasyOCR sur image complète
-    speak=False → calcul silencieux pour cache background
-    speak=True  → lit le résultat à voix haute
-    Retourne : (message_final, langue_detectee)
+    Reading pipeline — EasyOCR on the full image.
+    speak=False → silent computation for background cache.
+    speak=True  → reads result aloud.
+
+    Returns: (final_message: str, detected_lang: str)
     """
     textes = extract_text_lecture(image)
 
     if not textes:
-        msg = "Aucun texte détecté. Approchez et stabilisez le document."
+        msg = "No text detected. Please move closer and hold the document steady."
         if speak:
-            speak_if_new(msg, lang='fr')
-        return msg, 'fr'
+            speak_if_new(msg, lang='en')
+        return msg, 'en'
 
     all_text   = " ".join(textes)
     final_lang = detect_language(all_text)
-    message    = ". ".join(textes)  # ✅ tout le texte, pas seulement 6 lignes
+    message    = ". ".join(textes)
 
     if speak:
-        speak_if_new(message, lang=final_lang, is_lecture=True)
+        speak_lecture(message, lang=final_lang)
 
     return message, final_lang
 
 
-def _classic_message(objects_with_distances, texts, lang='fr'):
-    """Message classique sans IA"""
+# ══════════════════════════════════════════════════════════
+# HELPERS
+# ══════════════════════════════════════════════════════════
+def _classic_message(objects_with_distances: list,
+                     texts: list,
+                     lang: str = 'en') -> str:
+    """Rule-based message — no AI."""
     parts = [obj["distance"] for obj in objects_with_distances]
 
     for text in texts:
@@ -144,7 +140,6 @@ def _classic_message(objects_with_distances, texts, lang='fr'):
             parts.append(interpreted)
 
     if not parts:
-        msgs = {'fr': "aucun obstacle détecté", 'en': "no obstacles detected", 'ar': "لا يوجد عوائق"}
-        return msgs.get(lang, msgs['fr'])
+        return _CLEAR_MSGS.get(lang, _CLEAR_MSGS['en'])
 
     return ". ".join(parts[:3])

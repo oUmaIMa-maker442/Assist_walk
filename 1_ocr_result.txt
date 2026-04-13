@@ -1,0 +1,3 @@
+Language: fr
+────────────────────────────────────────────────────────────
+l --- -- Université Mohammed de Rebet. ÉCOLE NATIONALE SUPÉRIEURE D'INFORMATIQUE ET. l D'ANALYSE DES SYSTÈMES - RABAT. Développement d'un système d'aide au. diagnostic des pathologies rétiniennes. l basé sur les réseaux de neurones. l convolutifs. SOUTENU LE 22 FÉVRIER 2026 DEVANT LES JURYS. Pr. Laila CHEIKHI. Pr. Ibtissam ABNANE. Réalisé par Encadré por. Reda EL FERRASI Pr. Laila CHEIKHI. Année Scolaire

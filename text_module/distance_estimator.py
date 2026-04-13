@@ -1,60 +1,91 @@
-DISTANCE_AR = {
-    "très proche":        "قريب جداً",
-    "proche":             "قريب",
-    "à distance moyenne": "على بعد متوسط",
-    "loin":               "بعيد",
+# ═══════════════════════════════════════════════════════════
+# Distance estimator
+# Phase 1: English-first output — French/Arabic kept for
+#          future multilingual support but not used by default
+# ═══════════════════════════════════════════════════════════
+
+# Distance label → human-readable string per language
+_DISTANCE_LABELS = {
+    'en': {
+        'very_close': 'very close',
+        'close':      'nearby',
+        'medium':     'at medium distance',
+        'far':        'far away',
+    },
+    'fr': {
+        'very_close': 'très proche',
+        'close':      'proche',
+        'medium':     'à distance moyenne',
+        'far':        'loin',
+    },
+    'ar': {
+        'very_close': 'قريب جداً',
+        'close':      'قريب',
+        'medium':     'على بعد متوسط',
+        'far':        'بعيد',
+    },
 }
 
-DISTANCE_EN = {
-    "très proche":        "very close",
-    "proche":             "nearby",
-    "à distance moyenne": "at medium distance",
-    "loin":               "far away",
+# Alert level → message template per language
+_TEMPLATES = {
+    'en': {
+        'danger':    'danger! {name} {dist} ahead',
+        'attention': 'warning, {name} {dist}',
+        'info':      '{name} detected, {dist}',
+    },
+    'fr': {
+        'danger':    'danger ! {name} {dist} devant vous',
+        'attention': 'attention, {name} {dist}',
+        'info':      '{name} détecté, {dist}',
+    },
+    'ar': {
+        'danger':    'خطر! {name} {dist} أمامك',
+        'attention': 'انتبه، {name} {dist}',
+        'info':      'تم اكتشاف {name}، {dist}',
+    },
 }
+
 
 def estimate_distance(bbox, frame_width, frame_height):
-    x1, y1, x2, y2 = bbox
-    obj_width  = x2 - x1
-    obj_height = y2 - y1
+    """
+    Estimate distance from bounding-box size ratio.
 
-    ratio_w = obj_width  / frame_width
-    ratio_h = obj_height / frame_height
-    ratio   = max(ratio_w, ratio_h)
+    Returns: (distance_key, alert_level)
+        distance_key : 'very_close' | 'close' | 'medium' | 'far'
+        alert_level  : 'danger'     | 'attention' | 'info'
+    """
+    x1, y1, x2, y2 = bbox
+    ratio = max((x2 - x1) / frame_width,
+                (y2 - y1) / frame_height)
 
     if ratio > 0.5:
-        return "très proche", "danger"
+        return 'very_close', 'danger'
     elif ratio > 0.25:
-        return "proche", "attention"
+        return 'close', 'attention'
     elif ratio > 0.10:
-        return "à distance moyenne", "info"
+        return 'medium', 'info'
     else:
-        return "loin", "info"
+        return 'far', 'info'
 
 
-def distance_message(obj_name, bbox, frame_shape, lang='fr'):
+def distance_message(obj_name: str, bbox, frame_shape, lang: str = 'en') -> str:
+    """
+    Build a spoken distance message.
+
+    Args:
+        obj_name   : English class name (e.g. 'car', 'person')
+        bbox       : (x1, y1, x2, y2)
+        frame_shape: (h, w, c)  — numpy shape
+        lang       : 'en' | 'fr' | 'ar'  (default: 'en')
+
+    Returns:
+        Natural-language string, e.g. "danger! car very close ahead"
+    """
     h, w = frame_shape[:2]
-    distance_text, level = estimate_distance(bbox, w, h)
+    dist_key, level = estimate_distance(bbox, w, h)
 
-    distance_ar = DISTANCE_AR.get(distance_text, distance_text)
-    distance_en = DISTANCE_EN.get(distance_text, distance_text)
+    labels    = _DISTANCE_LABELS.get(lang, _DISTANCE_LABELS['en'])
+    templates = _TEMPLATES.get(lang, _TEMPLATES['en'])
 
-    TEMPLATES = {
-        'fr': {
-            "danger":    f"danger ! {obj_name} {distance_text} devant vous",
-            "attention": f"attention, {obj_name} {distance_text}",
-            "info":      f"{obj_name} détecté, {distance_text}",
-        },
-        'en': {
-            "danger":    f"danger! {obj_name} {distance_en} ahead",
-            "attention": f"warning, {obj_name} {distance_en}",
-            "info":      f"{obj_name} detected, {distance_en}",
-        },
-        'ar': {
-            "danger":    f"خطر! {obj_name} {distance_ar} أمامك",
-            "attention": f"انتبه، {obj_name} {distance_ar}",
-            "info":      f"تم اكتشاف {obj_name}، {distance_ar}",
-        }
-    }
-
-    template = TEMPLATES.get(lang, TEMPLATES['fr'])
-    return template[level]
+    dist_str = labels[dist_key]
+    return templates[level].format(name=obj_name, dist=dist_str)
